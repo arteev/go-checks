@@ -1,2 +1,2 @@
 # go-checks
-Go pacakge for field checks
+Go package for field checks
