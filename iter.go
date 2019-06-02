@@ -4,38 +4,53 @@ import (
 	"reflect"
 )
 
-type Iterator interface {
-	HasNext() bool
-	Next() Value
-}
+type (
+	//Iterator is the interface iterator
+	Iterator interface {
+		HasNext() bool
+		Next() Value
+	}
 
-type iterator struct {
-	idx   int
-	nodes []node
-}
+	//Value is the interface Value of structs
+	Value interface {
+		Name() string
+		Tag() reflect.StructTag
+		Value() *reflect.Value
+		Parent() Value
+		Struct() *reflect.StructField
+	}
 
-type node struct {
-	value    reflect.Value
-	strField *reflect.StructField
-}
+	iterator struct {
+		idx   int
+		nodes []*node
+	}
 
-type Value interface {
-	Name() string
-	Tag() reflect.StructTag
-	Value() reflect.Value
+	node struct {
+		parent   *node
+		value    *reflect.Value
+		strField *reflect.StructField
+	}
+)
+
+var iterateable = map[reflect.Kind]struct{}{
+	reflect.Struct: struct{}{},
+	reflect.Slice:  struct{}{},
+	reflect.Array:  struct{}{},
+	reflect.Map:    struct{}{},
 }
 
 func canIterate(v reflect.Value) bool {
-	kind := v.Kind()
-	return kind == reflect.Struct ||
-		kind == reflect.Slice ||
-		kind == reflect.Array ||
-		kind == reflect.Map
+	_, ok := iterateable[v.Kind()]
+	return ok
 }
 
 func (n node) Name() string {
 	if n.strField == nil {
-		return n.value.Type().Name()
+		name := n.value.Type().Name()
+		if name == "" {
+			name = n.value.Type().Kind().String()
+		}
+		return name
 	}
 	return n.strField.Name
 }
@@ -45,7 +60,13 @@ func (n node) Tag() reflect.StructTag {
 	}
 	return n.strField.Tag
 }
-func (n node) Value() reflect.Value { return n.value }
+func (n node) Value() *reflect.Value { return n.value }
+
+func (n node) Struct() *reflect.StructField { return n.strField }
+
+func (n node) Parent() Value {
+	return n.parent
+}
 
 func (i *iterator) HasNext() bool {
 	if i == nil {
@@ -60,44 +81,36 @@ func (i *iterator) Next() Value {
 	return result
 }
 
-func (i *iterator) initValue(v reflect.Value, sf *reflect.StructField) {
-	//cType := value.Type()
-	//strFieldCur := cType.Field(i)
-
-	//if err := walkCheck(value.Field(i), &strFieldCur); err != nil {
-	//return err
-	//}
+func (i *iterator) initValue(v reflect.Value, sf *reflect.StructField, parent *node) *node {
+	item := &node{
+		value:    &v,
+		strField: sf,
+		parent:   parent,
+	}
+	i.nodes = append(i.nodes, item)
 
 	if canIterate(v) {
-		i.nodes = append(i.nodes, node{
-			value:    v,
-			strField: sf,
-		})
-
-		i.init(v, sf)
-		return
+		i.init(v, nil, item)
 	}
-	i.nodes = append(i.nodes, node{
-		value:    v,
-		strField: sf,
-	})
-	//log.Println(v, sf.Name, sf.Type.Name())
+	return item
 }
 
-func (i *iterator) init(v reflect.Value, sf *reflect.StructField) {
+func (i *iterator) init(v reflect.Value, sf *reflect.StructField, parent *node) {
 	switch v.Kind() {
 	case reflect.Struct:
 		for k := 0; k < v.NumField(); k++ {
 			cType := v.Type()
 			strFieldCur := cType.Field(k)
-			i.initValue(v.Field(k), &strFieldCur)
+			value := reflect.Indirect(v.Field(k))
+			i.initValue(value, &strFieldCur, parent)
 		}
 	case reflect.Slice, reflect.Array:
 		for k := 0; k < v.Len(); k++ {
 			value := v.Index(k)
 			if !isNil(value) {
 				value = reflect.Indirect(value)
-				i.init(value, sf)
+				//i.init(value, sf, parent)
+				i.initValue(value, sf, parent)
 			}
 		}
 	case reflect.Map:
@@ -105,20 +118,22 @@ func (i *iterator) init(v reflect.Value, sf *reflect.StructField) {
 			value := v.MapIndex(key)
 			if !isNil(value) {
 				value = reflect.Indirect(value)
-				i.init(value, sf)
+				//i.init(value, sf, parent)
+				i.initValue(value, sf, parent)
 			}
 		}
 	default:
-		i.initValue(v, nil)
+		i.initValue(v, nil, parent)
 	}
-
 }
 
-func newIterator(v reflect.Value) Iterator {
-	if !canIterate(v) {
+func newIterator(value interface{}) Iterator {
+	v := reflect.ValueOf(value)
+	if value == nil || isNil(v) {
 		return (*iterator)(nil)
 	}
+	v = reflect.Indirect(v)
 	result := &iterator{}
-	result.init(v, nil)
+	result.initValue(v, nil, nil)
 	return result
 }

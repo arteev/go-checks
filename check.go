@@ -23,15 +23,6 @@ type Checker interface {
 	Check() error
 }
 
-//Check check structure
-func Check(v interface{}) error {
-	value := reflect.ValueOf(v)
-	if v == nil || isNil(value) {
-		return nil
-	}
-	return walkCheck(value, nil)
-}
-
 func isZero(v reflect.Value) bool {
 	switch v.Kind() {
 	case reflect.Func:
@@ -108,16 +99,17 @@ func checkInterfaceChecker(value reflect.Value) error {
 	return check.Check()
 }
 
-func checkValue(value reflect.Value, strField *reflect.StructField) error {
+func checkValue(v Value) error {
+	value := *v.Value()
 	if err := checkInterfaceChecker(value); err != nil {
 		return err
 	}
 
-	if strField == nil {
+	if v.Struct() == nil {
 		return nil
 	}
 
-	sTag, ok := strField.Tag.Lookup("check")
+	sTag, ok := v.Tag().Lookup("check")
 	if !ok {
 		return nil
 	}
@@ -125,12 +117,12 @@ func checkValue(value reflect.Value, strField *reflect.StructField) error {
 	var errCheck error
 	switch sTag {
 	case "required":
-		errCheck = checkRequired(value, strField)
+		errCheck = checkRequired(value, v.Struct())
 	case "deprecated":
-		errCheck = checkDeprecated(value, strField)
+		errCheck = checkDeprecated(value, v.Struct())
 	default:
 		if strings.HasPrefix(sTag, "expect:") {
-			errCheck = checkExpect(value, strField)
+			errCheck = checkExpect(value, v.Struct())
 		}
 	}
 	if errCheck != nil {
@@ -149,74 +141,17 @@ func hasValue(value string, values []string) bool {
 	return false
 }
 
-func checkStruct(value reflect.Value) error {
-	for i := 0; i < value.NumField(); i++ {
-		cType := value.Type()
-		strFieldCur := cType.Field(i)
-		if err := walkCheck(value.Field(i), &strFieldCur); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func checkSlice(value reflect.Value) error {
-	for i := 0; i < value.Len(); i++ {
-		if err := walkCheck(value.Index(i), nil); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func checkMap(value reflect.Value) error {
-	for _, key := range value.MapKeys() {
-		if err := walkCheck(value.MapIndex(key), nil); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func walkCheck(value reflect.Value, strField *reflect.StructField) error {
-	value = reflect.Indirect(value)
-	if err := checkValue(value, strField); err != nil {
-		if err == ErrSkip {
-			return nil
-		}
-		return err
-	}
-	switch value.Kind() {
-	case reflect.Ptr, reflect.Interface:
-		if value.IsNil() {
-			return nil
-		}
-	case reflect.Struct:
-		return checkStruct(value)
-	case reflect.Slice, reflect.Array:
-		return checkSlice(value)
-	case reflect.Map:
-		return checkMap(value)
-	default:
-		return nil
-	}
-	return nil
-}
-
-func Check2(v interface{}) error {
-	value := reflect.ValueOf(v)
-	if v == nil || isNil(value) {
-		return nil
-	}
-	value = reflect.Indirect(value)
-
-	iter := newIterator(value)
+//Check check structure
+func Check(v interface{}) error {
+	iter := newIterator(v)
 	for iter.HasNext() {
 		item := iter.Next()
-		log.Println(item.Name(), "TAG:", item.Tag(), "VALUE:", item.Value())
-
-		//check next()
+		if err := checkValue(item); err != nil {
+			if err == ErrSkip {
+				return nil
+			}
+			return err
+		}
 	}
-
 	return nil
 }
