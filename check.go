@@ -1,13 +1,11 @@
 package checks
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"reflect"
-
 	"strings"
-
-	"github.com/go-errors/errors"
 )
 
 //Errors
