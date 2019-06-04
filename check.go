@@ -34,8 +34,14 @@ type (
 	}
 )
 
-func isZero(v reflect.Value) bool {
+func isZero(value reflect.Value) bool {
+	v := reflect.Indirect(value)
+	if value.Kind() == reflect.Ptr && !isNil(value) {
+		return false
+	}
 	switch v.Kind() {
+	case reflect.Bool:
+		return false
 	case reflect.Invalid:
 		return true
 	case reflect.Func:
@@ -69,6 +75,7 @@ func checkDeprecated(value reflect.Value, strField *reflect.StructField) error {
 }
 
 func checkExpect(value reflect.Value, strField *reflect.StructField) error {
+	value = reflect.Indirect(value)
 	sTag := strField.Tag.Get("check")
 	sTagValues := strings.SplitN(sTag, ":", 2)
 	if len(sTagValues) != 2 || sTagValues[1] == "" {
@@ -141,10 +148,12 @@ func hasValue(value string, values []string) bool {
 }
 
 func isNil(value reflect.Value) bool {
+	//value = reflect.Indirect(value)
 	return (value.Kind() == reflect.Ptr || value.Kind() == reflect.Interface) && value.IsNil()
 }
 
 func isInterface(value reflect.Value) bool {
+	value = reflect.Indirect(value)
 	return value.IsValid() && !isNil(value) && value.CanInterface()
 }
 
