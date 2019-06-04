@@ -16,23 +16,32 @@ var (
 	ErrSkip            = errors.New("skip")
 )
 
-//Checker is the interface that wraps the basic Check method.
-type Checker interface {
-	Check() error
-}
+const (
+	modeFirst mode = iota
+	modeAll
+)
+
+type (
+	mode int
+
+	//Checker is the interface that wraps the basic Check method.
+	Checker interface {
+		Check() error
+	}
+
+	checker struct {
+		mode mode
+	}
+)
 
 func isZero(v reflect.Value) bool {
 	switch v.Kind() {
+	case reflect.Invalid:
+		return true
 	case reflect.Func:
 		return v.IsNil()
-	case reflect.Map, reflect.Slice:
+	case reflect.Map, reflect.Array, reflect.Slice:
 		return v.IsNil() || (v.Len() == 0)
-	case reflect.Array:
-		z := true
-		for i := 0; i < v.Len(); i++ {
-			z = z && isZero(v.Index(i))
-		}
-		return z
 	case reflect.Struct:
 		z := true
 		for i := 0; i < v.NumField(); i++ {
@@ -78,16 +87,8 @@ func checkExpect(value reflect.Value, strField *reflect.StructField) error {
 	return nil
 }
 
-func isNil(value reflect.Value) bool {
-	return (value.Kind() == reflect.Ptr || value.Kind() == reflect.Interface) && value.IsNil()
-}
-
-func IsInterface(value reflect.Value) bool {
-	return value.IsValid() && !isNil(value) && value.CanInterface()
-}
-
 func checkInterfaceChecker(value reflect.Value) error {
-	if !IsInterface(value) {
+	if !isInterface(value) {
 		return nil
 	}
 	check, ok := value.Interface().(Checker)
@@ -139,8 +140,22 @@ func hasValue(value string, values []string) bool {
 	return false
 }
 
-//Check check structure
-func Check(v interface{}) error {
+func isNil(value reflect.Value) bool {
+	return (value.Kind() == reflect.Ptr || value.Kind() == reflect.Interface) && value.IsNil()
+}
+
+func isInterface(value reflect.Value) bool {
+	return value.IsValid() && !isNil(value) && value.CanInterface()
+}
+
+func new(m mode) *checker {
+	return &checker{
+		mode: m,
+	}
+}
+
+func (c *checker) check(v interface{}) []error {
+	result := make([]error, 0)
 	iter := newIterator(v)
 	for iter.HasNext() {
 		item := iter.Next()
@@ -148,8 +163,28 @@ func Check(v interface{}) error {
 			if err == ErrSkip {
 				return nil
 			}
-			return err
+			result = append(result, err)
+			if c.mode == modeFirst {
+				break
+			}
 		}
 	}
-	return nil
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+//Check check structure
+func Check(v interface{}) error {
+	errs := new(modeFirst).check(v)
+	if len(errs) == 0 {
+		return nil
+	}
+	return errs[0]
+}
+
+//CheckAll check all fields of the structure
+func CheckAll(v interface{}) []error {
+	return new(modeAll).check(v)
 }
