@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"log"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -303,4 +304,49 @@ func TestCheckTagsAndChecker(t *testing.T) {
 		Enabled: false,
 	})
 	assert.NoError(t, err)
+}
+
+func TestChecker(t *testing.T) {
+	c := new(modeAll)
+	assert.NotNil(t, c)
+	assert.Equal(t, modeAll, c.mode)
+}
+
+func TestCheckAll(t *testing.T) {
+	type testStrAll struct {
+		A int  `check:"expect:1;2;3"`
+		B *int `check:"required"`
+	}
+	errs := CheckAll(&testStrAll{A: 10})
+	assert.Len(t, errs, 2)
+	assert.EqualError(t, errs[0], `unexpected value: A "10"`)
+	assert.EqualError(t, errs[1], `value required: B`)
+
+	errs = CheckAll(&testStrAll{A: 1})
+	assert.Len(t, errs, 1)
+	assert.EqualError(t, errs[0], `value required: B`)
+}
+
+func TestIsZero(t *testing.T) {
+	type testZero struct {
+		A int
+		B int
+	}
+	zeros := []interface{}{
+		nil,
+		0,
+		"",
+		0.00,
+		(func())(nil),
+		(map[string]string)(nil),
+		([]byte)(nil),
+		&testZero{},
+		[]uint{},
+	}
+
+	for _, z := range zeros {
+		value := reflect.Indirect(reflect.ValueOf(z))
+		got := isZero(value)
+		assert.True(t, got, "should be zero: %v", z)
+	}
 }

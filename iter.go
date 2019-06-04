@@ -90,12 +90,12 @@ func (i *iterator) initValue(v reflect.Value, sf *reflect.StructField, parent *n
 	i.nodes = append(i.nodes, item)
 
 	if canIterate(v) {
-		i.init(v, nil, item)
+		i.initInterateable(v, nil, item)
 	}
 	return item
 }
 
-func (i *iterator) init(v reflect.Value, sf *reflect.StructField, parent *node) {
+func (i *iterator) initInterateable(v reflect.Value, sf *reflect.StructField, parent *node) {
 	switch v.Kind() {
 	case reflect.Struct:
 		for k := 0; k < v.NumField(); k++ {
@@ -109,7 +109,6 @@ func (i *iterator) init(v reflect.Value, sf *reflect.StructField, parent *node) 
 			value := v.Index(k)
 			if !isNil(value) {
 				value = reflect.Indirect(value)
-				//i.init(value, sf, parent)
 				i.initValue(value, sf, parent)
 			}
 		}
@@ -118,12 +117,9 @@ func (i *iterator) init(v reflect.Value, sf *reflect.StructField, parent *node) 
 			value := v.MapIndex(key)
 			if !isNil(value) {
 				value = reflect.Indirect(value)
-				//i.init(value, sf, parent)
 				i.initValue(value, sf, parent)
 			}
 		}
-	default:
-		i.initValue(v, nil, parent)
 	}
 }
 
