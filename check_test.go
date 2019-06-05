@@ -1,9 +1,7 @@
 package checks
 
 import (
-	"bytes"
 	"errors"
-	"log"
 	"reflect"
 	"testing"
 
@@ -152,13 +150,12 @@ type testTags struct {
 	NoTag            string
 	FieldRequired    string  `check:"required"`
 	FieldRequiredPtr *string `check:"required"`
+	FieldBool        bool    `check:"required"`
+	FieldBoolPtr     *bool   `check:"required"`
 }
 
 func TestCheckOverTagsRequired(t *testing.T) {
 	err := Check(&testTags{})
-	assert.EqualError(t, err, "value required: FieldRequired")
-
-	err = Check(testTags{})
 	assert.EqualError(t, err, "value required: FieldRequired")
 
 	err = Check(testTags{
@@ -166,10 +163,19 @@ func TestCheckOverTagsRequired(t *testing.T) {
 	})
 	assert.EqualError(t, err, "value required: FieldRequiredPtr")
 
-	s := "21312"
+	s := ""
 	err = Check(testTags{
 		FieldRequired:    "123",
 		FieldRequiredPtr: &s,
+	})
+	assert.EqualError(t, err, "value required: FieldBoolPtr")
+
+	s = "21312"
+	b := false
+	err = Check(testTags{
+		FieldRequired:    "123",
+		FieldRequiredPtr: &s,
+		FieldBoolPtr:     &b,
 	})
 	assert.NoError(t, err)
 }
@@ -180,7 +186,7 @@ func TestCheckOverTagsExpect(t *testing.T) {
 		Field string `check:"expect:"`
 	}
 	err := Check(&testBadSyntax{})
-	assert.EqualError(t, err, `bad syntax: "Field" expect:`)
+	assert.EqualError(t, err, `bad syntax: Field expect:`)
 
 	//string empty
 	type testTagsExpect struct {
@@ -190,7 +196,7 @@ func TestCheckOverTagsExpect(t *testing.T) {
 	err = Check(&testTagsExpect{
 		FieldExpectStr: "bzz",
 	})
-	assert.EqualError(t, err, `unexpected value: FieldExpectStr "bzz"`)
+	assert.EqualError(t, err, `unexpected value: FieldExpectStr bzz`)
 
 	err = Check(&testTagsExpect{
 		FieldExpectStr: "",
@@ -206,7 +212,7 @@ func TestCheckOverTagsExpect(t *testing.T) {
 		FieldExpectStrNoEmpty string `check:"expect:warn;error"`
 	}
 	err = Check(&testTagsExpectNoempty{})
-	assert.EqualError(t, err, `unexpected value: FieldExpectStrNoEmpty ""`)
+	assert.EqualError(t, err, `unexpected value: FieldExpectStrNoEmpty `)
 
 	//string ptr
 	type testTagsPtr struct {
@@ -219,7 +225,7 @@ func TestCheckOverTagsExpect(t *testing.T) {
 	err = Check(&testTagsPtr{
 		FieldStrPtr: &s,
 	})
-	assert.EqualError(t, err, `unexpected value: FieldStrPtr "test"`)
+	assert.EqualError(t, err, `unexpected value: FieldStrPtr test`)
 
 	s = "foo"
 	err = Check(&testTagsPtr{
@@ -231,42 +237,32 @@ func TestCheckOverTagsExpect(t *testing.T) {
 		Field int `check:"expect:1;2;3;50;23"`
 	}
 	err = Check(&testInt{})
-	assert.EqualError(t, err, `unexpected value: Field "0"`)
+	assert.EqualError(t, err, `unexpected value: Field 0`)
 
 	err = Check(&testInt{Field: 50})
 	assert.NoError(t, err)
 }
 
 func TestCheckDeprecated(t *testing.T) {
-
-	buf := &bytes.Buffer{}
-
-	log.SetOutput(buf)
-
 	type testDep struct {
-		Field1 int  `check:"deprecated"`
-		Field2 bool `check:"deprecated"`
+		Field1 int    `check:"deprecated"`
+		Field2 string `check:"deprecated"`
+		Field3 *byte  `check:"deprecated"`
+		Field4 []byte `check:"deprecated"`
 	}
-	err := Check(&testDep{})
-	assert.NoError(t, err)
-	assert.Zero(t, buf.Len())
+	err := New(ModeFirst, WarningType).Check(&testDep{})
+	assert.Len(t, err, 0)
 
-	err = Check(&testDep{
+	err = New(ModeFirst, WarningType).Check(&testDep{
 		Field1: 1,
 	})
-	assert.NoError(t, err)
-	assert.Contains(t, buf.String(), `deprecated parameter "Field1" discouraged from using, because it is dangerous, or because a better alternative exists`)
+	assert.EqualError(t, err[0], `deprecated parameter: Field1`)
 
-	buf = &bytes.Buffer{}
-	log.SetOutput(buf)
-	err = Check(&testDep{
-		Field1: 1,
-		Field2: true,
+	err = New(ModeFirst, WarningType).Check(&testDep{
+		Field2: "123",
+		Field4: []byte{1},
 	})
-	assert.NoError(t, err)
-	assert.Contains(t, buf.String(), `deprecated parameter "Field1" discouraged from using, because it is dangerous, or because a better alternative exists`)
-	assert.Contains(t, buf.String(), `deprecated parameter "Field2" discouraged from using, because it is dangerous, or because a better alternative exists`)
-
+	assert.EqualError(t, err[0], `deprecated parameter: Field2`)
 }
 
 type testTagAndChecker struct {
@@ -292,7 +288,7 @@ func (t testTagAndChecker) Check() error {
 
 func TestCheckTagsAndChecker(t *testing.T) {
 	err := Check(&testTagAndChecker{Enabled: true})
-	assert.EqualError(t, err, `unexpected value: Field "0"`)
+	assert.EqualError(t, err, `unexpected value: Field 0`)
 
 	err = Check(&testTagAndChecker{
 		Enabled: true,
@@ -307,24 +303,30 @@ func TestCheckTagsAndChecker(t *testing.T) {
 }
 
 func TestChecker(t *testing.T) {
-	c := new(modeAll)
+	c := New(ModeAll, ErrorAll)
 	assert.NotNil(t, c)
-	assert.Equal(t, modeAll, c.mode)
+	assert.Equal(t, ModeAll, c.mode)
 }
 
 func TestCheckAll(t *testing.T) {
 	type testStrAll struct {
-		A int  `check:"expect:1;2;3"`
-		B *int `check:"required"`
+		A int    `check:"expect:1;2;3"`
+		B *int   `check:"required"`
+		C string `check:"deprecated"`
 	}
 	errs := CheckAll(&testStrAll{A: 10})
 	assert.Len(t, errs, 2)
-	assert.EqualError(t, errs[0], `unexpected value: A "10"`)
+	assert.EqualError(t, errs[0], `unexpected value: A 10`)
 	assert.EqualError(t, errs[1], `value required: B`)
 
 	errs = CheckAll(&testStrAll{A: 1})
 	assert.Len(t, errs, 1)
 	assert.EqualError(t, errs[0], `value required: B`)
+
+	b := 12
+	errs = CheckAll(&testStrAll{A: 1, B: &b})
+	assert.Len(t, errs, 0)
+
 }
 
 func TestIsZero(t *testing.T) {
@@ -332,21 +334,60 @@ func TestIsZero(t *testing.T) {
 		A int
 		B int
 	}
-	zeros := []interface{}{
-		nil,
-		0,
-		"",
-		0.00,
-		(func())(nil),
-		(map[string]string)(nil),
-		([]byte)(nil),
-		&testZero{},
-		[]uint{},
+	strEmpty := ""
+	zeros := []struct {
+		v    interface{}
+		must bool
+	}{
+		{nil, true},
+		{0, true},
+		{"", true},
+		{0.00, true},
+		{(func())(nil), true},
+		{(map[string]string)(nil), true},
+		{([]byte)(nil), true},
+		{[]uint{}, true},
+		{(*string)(nil), true},
+
+		{[]uint{0}, false},
+
+		{&testZero{}, false},
+		{testZero{}, true},
+		{false, false},
+		{true, false},
+		{strEmpty, true},
+		{&strEmpty, false},
 	}
 
-	for _, z := range zeros {
-		value := reflect.Indirect(reflect.ValueOf(z))
-		got := isZero(value)
-		assert.True(t, got, "should be zero: %v", z)
+	for _, test := range zeros {
+		got := isZero(reflect.ValueOf(test.v))
+		assert.Equal(t, test.must, got, "value: %v", test.v)
 	}
+}
+
+func TestCheckerErrorTypes(t *testing.T) {
+	type testTypes struct {
+		A int    `check:"expect:1;2;3"`
+		B string `check:"deprecated"`
+	}
+	value := testTypes{
+		A: 10,
+		B: "123",
+	}
+	c := New(ModeAll, ErrorAll)
+
+	errs := c.Check(value)
+	assert.Len(t, errs, 2)
+	assert.EqualError(t, errs[0], "unexpected value: A 10")
+	assert.EqualError(t, errs[1], "deprecated parameter: B")
+
+	c = New(ModeAll, ErrorType)
+	errs = c.Check(value)
+	assert.Len(t, errs, 1)
+	assert.EqualError(t, errs[0], "unexpected value: A 10")
+
+	c = New(ModeAll, WarningType)
+	errs = c.Check(value)
+	assert.Len(t, errs, 1)
+	assert.EqualError(t, errs[0], "deprecated parameter: B")
 }

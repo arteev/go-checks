@@ -3,7 +3,6 @@ package checks
 import (
 	"errors"
 	"fmt"
-	"log"
 	"reflect"
 	"strings"
 )
@@ -12,17 +11,18 @@ import (
 var (
 	ErrValueRequired   = errors.New("value required")
 	ErrValueUnexpected = errors.New("unexpected value")
+	ErrDeprecated      = errors.New("deprecated parameter")
 	ErrBadSyntax       = errors.New("bad syntax")
 	ErrSkip            = errors.New("skip")
 )
 
 const (
-	modeFirst mode = iota
-	modeAll
+	ModeFirst Mode = iota
+	ModeAll
 )
 
 type (
-	mode int
+	Mode int
 
 	//Checker is the interface that wraps the basic Check method.
 	Checker interface {
@@ -30,12 +30,19 @@ type (
 	}
 
 	checker struct {
-		mode mode
+		mode      Mode
+		errorMode Type
 	}
 )
 
-func isZero(v reflect.Value) bool {
+func isZero(value reflect.Value) bool {
+	v := reflect.Indirect(value)
+	if value.Kind() == reflect.Ptr && !isNil(value) {
+		return false
+	}
 	switch v.Kind() {
+	case reflect.Bool:
+		return false
 	case reflect.Invalid:
 		return true
 	case reflect.Func:
@@ -55,7 +62,7 @@ func isZero(v reflect.Value) bool {
 
 func checkRequired(value reflect.Value, strField *reflect.StructField) error {
 	if isNil(value) || !value.IsValid() || isZero(value) {
-		return fmt.Errorf("%s: %s", ErrValueRequired, strField.Name)
+		return newError(ErrValueRequired, strField.Name, nil, ErrorType)
 	}
 	return nil
 }
@@ -64,25 +71,25 @@ func checkDeprecated(value reflect.Value, strField *reflect.StructField) error {
 	if isNil(value) || !value.IsValid() || isZero(value) {
 		return nil
 	}
-	log.Printf("deprecated parameter %q discouraged from using, because it is dangerous, or because a better alternative exists", strField.Name)
-	return nil
+	return newError(ErrDeprecated, strField.Name, nil, WarningType)
 }
 
 func checkExpect(value reflect.Value, strField *reflect.StructField) error {
+	value = reflect.Indirect(value)
 	sTag := strField.Tag.Get("check")
 	sTagValues := strings.SplitN(sTag, ":", 2)
 	if len(sTagValues) != 2 || sTagValues[1] == "" {
-		return fmt.Errorf("%s: %q %v", ErrBadSyntax, strField.Name, sTag)
+		return newError(ErrBadSyntax, strField.Name, sTag, ErrorType)
 	}
 	sTagValues = strings.Split(sTagValues[1], ";")
 
 	if isNil(value) || !value.IsValid() {
-		return fmt.Errorf("%s: %s %v", ErrValueUnexpected, strField.Name, nil)
+		return newError(ErrValueUnexpected, strField.Name, "<nil>", ErrorType)
 	}
 
 	sValue := fmt.Sprintf("%v", value.Interface())
 	if !hasValue(sValue, sTagValues) {
-		return fmt.Errorf("%s: %s %q", ErrValueUnexpected, strField.Name, sValue)
+		return newError(ErrValueUnexpected, strField.Name, value.Interface(), ErrorType)
 	}
 	return nil
 }
@@ -145,16 +152,19 @@ func isNil(value reflect.Value) bool {
 }
 
 func isInterface(value reflect.Value) bool {
+	value = reflect.Indirect(value)
 	return value.IsValid() && !isNil(value) && value.CanInterface()
 }
 
-func new(m mode) *checker {
+//New returns new checker
+func New(m Mode, e Type) *checker {
 	return &checker{
-		mode: m,
+		mode:      m,
+		errorMode: e,
 	}
 }
 
-func (c *checker) check(v interface{}) []error {
+func (c *checker) Check(v interface{}) []error {
 	result := make([]error, 0)
 	iter := newIterator(v)
 	for iter.HasNext() {
@@ -163,8 +173,16 @@ func (c *checker) check(v interface{}) []error {
 			if err == ErrSkip {
 				return nil
 			}
+
+			if are, ok := err.(ErrorCheckResult); ok {
+				typ := are.GetType()
+				if (typ & c.errorMode) != typ {
+					continue
+				}
+			}
+
 			result = append(result, err)
-			if c.mode == modeFirst {
+			if c.mode == ModeFirst {
 				break
 			}
 		}
@@ -177,7 +195,7 @@ func (c *checker) check(v interface{}) []error {
 
 //Check check structure
 func Check(v interface{}) error {
-	errs := new(modeFirst).check(v)
+	errs := New(ModeFirst, ErrorType).Check(v)
 	if len(errs) == 0 {
 		return nil
 	}
@@ -186,5 +204,5 @@ func Check(v interface{}) error {
 
 //CheckAll check all fields of the structure
 func CheckAll(v interface{}) []error {
-	return new(modeAll).check(v)
+	return New(ModeAll, ErrorType).Check(v)
 }

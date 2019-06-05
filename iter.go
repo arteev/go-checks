@@ -26,6 +26,7 @@ type (
 	}
 
 	node struct {
+		ptr      bool
 		parent   *node
 		value    *reflect.Value
 		strField *reflect.StructField
@@ -40,15 +41,16 @@ var iterateable = map[reflect.Kind]struct{}{
 }
 
 func canIterate(v reflect.Value) bool {
+	v = reflect.Indirect(v)
 	_, ok := iterateable[v.Kind()]
 	return ok
 }
 
 func (n node) Name() string {
 	if n.strField == nil {
-		name := n.value.Type().Name()
+		name := reflect.Indirect(*n.value).Type().Name()
 		if name == "" {
-			name = n.value.Type().Kind().String()
+			name = reflect.Indirect(*n.value).Type().Kind().String()
 		}
 		return name
 	}
@@ -82,7 +84,14 @@ func (i *iterator) Next() Value {
 }
 
 func (i *iterator) initValue(v reflect.Value, sf *reflect.StructField, parent *node) *node {
+	ptr := false
+	value := v
+	if v.Kind() == reflect.Ptr {
+		value = reflect.Indirect(v)
+		ptr = true
+	}
 	item := &node{
+		ptr:      ptr,
 		value:    &v,
 		strField: sf,
 		parent:   parent,
@@ -90,7 +99,7 @@ func (i *iterator) initValue(v reflect.Value, sf *reflect.StructField, parent *n
 	i.nodes = append(i.nodes, item)
 
 	if canIterate(v) {
-		i.initInterateable(v, nil, item)
+		i.initInterateable(value, nil, item)
 	}
 	return item
 }
@@ -101,24 +110,17 @@ func (i *iterator) initInterateable(v reflect.Value, sf *reflect.StructField, pa
 		for k := 0; k < v.NumField(); k++ {
 			cType := v.Type()
 			strFieldCur := cType.Field(k)
-			value := reflect.Indirect(v.Field(k))
-			i.initValue(value, &strFieldCur, parent)
+			i.initValue(v.Field(k), &strFieldCur, parent)
 		}
 	case reflect.Slice, reflect.Array:
 		for k := 0; k < v.Len(); k++ {
 			value := v.Index(k)
-			if !isNil(value) {
-				value = reflect.Indirect(value)
-				i.initValue(value, sf, parent)
-			}
+			i.initValue(value, sf, parent)
 		}
 	case reflect.Map:
 		for _, key := range v.MapKeys() {
 			value := v.MapIndex(key)
-			if !isNil(value) {
-				value = reflect.Indirect(value)
-				i.initValue(value, sf, parent)
-			}
+			i.initValue(value, sf, parent)
 		}
 	}
 }
@@ -128,7 +130,6 @@ func newIterator(value interface{}) Iterator {
 	if value == nil || isNil(v) {
 		return (*iterator)(nil)
 	}
-	v = reflect.Indirect(v)
 	result := &iterator{}
 	result.initValue(v, nil, nil)
 	return result
