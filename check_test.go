@@ -391,3 +391,24 @@ func TestCheckerErrorTypes(t *testing.T) {
 	assert.Len(t, errs, 1)
 	assert.EqualError(t, errs[0], "deprecated parameter: B")
 }
+
+func TestCheckerMultiCheck(t *testing.T) {
+	type testTypes struct {
+		A int `check:"required,expect:1;2;3"`
+	}
+	value := testTypes{}
+	c := New(ModeAll, ErrorAll)
+	errs := c.Check(value)
+	assert.Len(t, errs, 2)
+	assert.EqualError(t, errs[0], "value required: A")
+	assert.EqualError(t, errs[1], "unexpected value: A 0")
+
+	value = testTypes{A: 10}
+	errs = c.Check(value)
+	assert.Len(t, errs, 1)
+	assert.EqualError(t, errs[0], "unexpected value: A 10")
+
+	value = testTypes{A: 2}
+	errs = c.Check(value)
+	assert.Len(t, errs, 0)
+}
