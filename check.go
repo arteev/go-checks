@@ -16,12 +16,14 @@ var (
 	ErrSkip            = errors.New("skip")
 )
 
+//Known check modes
 const (
 	ModeFirst Mode = iota
 	ModeAll
 )
 
 type (
+	//Mode check mode
 	Mode int
 
 	//Checker is the interface that wraps the basic Check method.
@@ -29,7 +31,8 @@ type (
 		Check() error
 	}
 
-	checker struct {
+	//SimpeChecker implements simple checks: required, expect, deprecated
+	SimpeChecker struct {
 		mode      Mode
 		errorMode Type
 	}
@@ -105,10 +108,10 @@ func checkInterfaceChecker(value reflect.Value) error {
 	return check.Check()
 }
 
-func checkValue(v Value) error {
+func checkValue(v Value) []error {
 	value := *v.Value()
 	if err := checkInterfaceChecker(value); err != nil {
-		return err
+		return []error{err}
 	}
 
 	if v.Struct() == nil {
@@ -120,22 +123,30 @@ func checkValue(v Value) error {
 		return nil
 	}
 
-	var errCheck error
-	switch sTag {
-	case "required":
-		errCheck = checkRequired(value, v.Struct())
-	case "deprecated":
-		errCheck = checkDeprecated(value, v.Struct())
-	default:
-		if strings.HasPrefix(sTag, "expect:") {
-			errCheck = checkExpect(value, v.Struct())
+	tagsChecks := strings.Split(sTag, ",")
+	result := []error{}
+	for _, tagCheck := range tagsChecks {
+		var errCheck error
+		switch tagCheck {
+		case "required":
+			errCheck = checkRequired(value, v.Struct())
+		case "deprecated":
+			errCheck = checkDeprecated(value, v.Struct())
+		default:
+			if strings.HasPrefix(tagCheck, "expect:") {
+				errCheck = checkExpect(value, v.Struct())
+			}
+		}
+		if errCheck != nil {
+			//return []error{errCheck}
+			result = append(result, errCheck)
 		}
 	}
-	if errCheck != nil {
-		return errCheck
+	if len(result) == 0 {
+		return nil
 	}
 
-	return nil
+	return result
 }
 
 func hasValue(value string, values []string) bool {
@@ -157,33 +168,35 @@ func isInterface(value reflect.Value) bool {
 }
 
 //New returns new checker
-func New(m Mode, e Type) *checker {
-	return &checker{
+func New(m Mode, e Type) *SimpeChecker {
+	return &SimpeChecker{
 		mode:      m,
 		errorMode: e,
 	}
 }
 
-func (c *checker) Check(v interface{}) []error {
+func (c *SimpeChecker) Check(v interface{}) []error {
 	result := make([]error, 0)
 	iter := newIterator(v)
 	for iter.HasNext() {
 		item := iter.Next()
 		if err := checkValue(item); err != nil {
-			if err == ErrSkip {
+			if len(err) != 0 && err[0] == ErrSkip {
 				return nil
 			}
 
-			if are, ok := err.(ErrorCheckResult); ok {
-				typ := are.GetType()
-				if (typ & c.errorMode) != typ {
-					continue
+			for _, e := range err {
+				if are, ok := e.(ErrorCheckResult); ok {
+					typ := are.GetType()
+					if (typ & c.errorMode) != typ {
+						continue
+					}
 				}
-			}
 
-			result = append(result, err)
-			if c.mode == ModeFirst {
-				break
+				result = append(result, e)
+				if c.mode == ModeFirst {
+					return result
+				}
 			}
 		}
 	}

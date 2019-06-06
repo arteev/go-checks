@@ -28,7 +28,7 @@ import (
 type Config struct {
 	Enabled  bool
 	Listen   string `check:"required"`
-	LogLevel string `check:"expect:info;debug;error;"`
+	LogLevel string `check:"required,expect:info;debug;error;"`
 	Timeout  int    `check:"deprecated"`
 }
 
