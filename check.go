@@ -9,11 +9,12 @@ import (
 
 //Errors
 var (
-	ErrValueRequired   = errors.New("value required")
-	ErrValueUnexpected = errors.New("unexpected value")
-	ErrDeprecated      = errors.New("deprecated parameter")
-	ErrBadSyntax       = errors.New("bad syntax")
-	ErrSkip            = errors.New("skip")
+	ErrValueRequired        = errors.New("value required")
+	ErrValueUnexpected      = errors.New("unexpected value")
+	ErrDeprecated           = errors.New("deprecated parameter")
+	ErrWrongSignatureMethod = errors.New("wrong signature method")
+	ErrBadSyntax            = errors.New("bad syntax")
+	ErrSkip                 = errors.New("skip")
 )
 
 //Known check modes
@@ -63,21 +64,21 @@ func isZero(value reflect.Value) bool {
 	return v.Interface() == z.Interface()
 }
 
-func checkRequired(value reflect.Value, strField *reflect.StructField) error {
+func required(value reflect.Value, strField *reflect.StructField) error {
 	if isNil(value) || !value.IsValid() || isZero(value) {
 		return newError(ErrValueRequired, strField.Name, nil, ErrorType)
 	}
 	return nil
 }
 
-func checkDeprecated(value reflect.Value, strField *reflect.StructField) error {
+func deprecated(value reflect.Value, strField *reflect.StructField) error {
 	if isNil(value) || !value.IsValid() || isZero(value) {
 		return nil
 	}
 	return newError(ErrDeprecated, strField.Name, nil, WarningType)
 }
 
-func checkExpect(value reflect.Value, strField *reflect.StructField) error {
+func expect(value reflect.Value, strField *reflect.StructField) error {
 	value = reflect.Indirect(value)
 	sTag := strField.Tag.Get("check")
 	sTagValues := strings.SplitN(sTag, ":", 2)
@@ -97,7 +98,36 @@ func checkExpect(value reflect.Value, strField *reflect.StructField) error {
 	return nil
 }
 
-func checkInterfaceChecker(value reflect.Value) error {
+func withMethod(root reflect.Value, value reflect.Value, strField *reflect.StructField) error {
+	sTag := strField.Tag.Get("check")
+	sTagValues := strings.SplitN(sTag, ":", 2)
+	if len(sTagValues) != 2 || sTagValues[1] == "" {
+		return newError(ErrBadSyntax, strField.Name, sTag, ErrorType)
+	}
+	methodName := sTagValues[1]
+	methodValue := root.MethodByName(methodName)
+	if !methodValue.IsValid() {
+		return fmt.Errorf("method not found: %s", methodName)
+	}
+
+	errValues := methodValue.Call([]reflect.Value{reflect.ValueOf(strField.Name), value})
+	errSignature := newError(ErrWrongSignatureMethod, strField.Name, sTag, ErrorType)
+	if len(errValues) != 1 {
+		return errSignature
+	}
+
+	if isNil(errValues[0]) {
+		return nil
+	}
+
+	err, ok := errValues[0].Interface().(error)
+	if !ok {
+		return errSignature
+	}
+	return err
+}
+
+func interfaceChecker(value reflect.Value) error {
 	if !isInterface(value) {
 		return nil
 	}
@@ -108,9 +138,9 @@ func checkInterfaceChecker(value reflect.Value) error {
 	return check.Check()
 }
 
-func checkValue(v Value) []error {
-	value := *v.Value()
-	if err := checkInterfaceChecker(value); err != nil {
+func checkValue(v Value, parent Value) []error {
+	value := v.Value()
+	if err := interfaceChecker(value); err != nil {
 		return []error{err}
 	}
 
@@ -129,16 +159,17 @@ func checkValue(v Value) []error {
 		var errCheck error
 		switch tagCheck {
 		case "required":
-			errCheck = checkRequired(value, v.Struct())
+			errCheck = required(value, v.Struct())
 		case "deprecated":
-			errCheck = checkDeprecated(value, v.Struct())
+			errCheck = deprecated(value, v.Struct())
 		default:
 			if strings.HasPrefix(tagCheck, "expect:") {
-				errCheck = checkExpect(value, v.Struct())
+				errCheck = expect(value, v.Struct())
+			} else if strings.HasPrefix(tagCheck, "call:") {
+				errCheck = withMethod(parent.Value(), value, v.Struct())
 			}
 		}
 		if errCheck != nil {
-			//return []error{errCheck}
 			result = append(result, errCheck)
 		}
 	}
@@ -175,12 +206,13 @@ func New(m Mode, e Type) *SimpeChecker {
 	}
 }
 
+//Check checks value
 func (c *SimpeChecker) Check(v interface{}) []error {
 	result := make([]error, 0)
 	iter := newIterator(v)
 	for iter.HasNext() {
 		item := iter.Next()
-		if err := checkValue(item); err != nil {
+		if err := checkValue(item, item.Parent()); err != nil {
 			if len(err) != 0 && err[0] == ErrSkip {
 				return nil
 			}
@@ -192,7 +224,6 @@ func (c *SimpeChecker) Check(v interface{}) []error {
 						continue
 					}
 				}
-
 				result = append(result, e)
 				if c.mode == ModeFirst {
 					return result

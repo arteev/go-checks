@@ -11,14 +11,24 @@ type Config struct {
 	Listen   string `check:"required"`
 	LogLevel string `check:"required,expect:info;debug;error;"`
 	Timeout  int    `check:"deprecated"`
+
+	ValueForFunc string `check:"call:ValueCheck"`
 }
 
 func (c Config) Check() error {
 	if !c.Enabled {
 		return checks.ErrSkip
 	}
-	//specific check
+	//special check
 	return nil
+}
+
+func (c Config) ValueCheck(name string, s string) error {
+	// special check for specific fields
+	if name != "ValueForFunc" || s == "valid" {
+		return nil
+	}
+	return fmt.Errorf("Not valid value: %q", s)
 }
 
 func main() {
@@ -58,12 +68,15 @@ func main() {
 
 	//normal
 	v = &Config{
-		Enabled:  true,
-		Listen:   ":8080",
-		LogLevel: "debug",
+		Enabled:      true,
+		Listen:       ":8080",
+		LogLevel:     "debug",
+		ValueForFunc: "valid",
 	}
 	errs = checks.CheckAll(v)
 	if len(errs) == 0 {
 		fmt.Println("OK")
+	} else {
+		fmt.Println("Errors:", errs)
 	}
 }
