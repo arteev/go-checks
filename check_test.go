@@ -2,6 +2,7 @@ package checks
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -411,4 +412,77 @@ func TestCheckerMultiCheck(t *testing.T) {
 	value = testTypes{A: 2}
 	errs = c.Check(value)
 	assert.Len(t, errs, 0)
+}
+
+type TestMethod struct {
+	Value  string `check:"call:CheckValue"`
+	IntPtr *int   `check:"call:CheckValueIntPtr"`
+}
+
+func (m TestMethod) CheckValue(field, value string) error {
+	if value == "valid" {
+		return nil
+	}
+	return errors.New("error from method")
+}
+
+func (m TestMethod) CheckValueIntPtr(field string, value *int) error {
+	if value == nil || *value != 100 {
+		return fmt.Errorf("required value")
+	}
+	return nil
+}
+
+type testMethodWrong struct {
+	Value int `check:"call:CheckValue"`
+}
+
+func (m testMethodWrong) CheckValue(field string, value int) {}
+
+type testMethodWrongRet struct {
+	Value int `check:"call:CheckValue"`
+}
+
+func (m testMethodWrongRet) CheckValue(field string, value int) int { return 1 }
+
+func TestOverMethod(t *testing.T) {
+	err := Check(struct {
+		Value int `check:"call:"`
+	}{})
+	assert.EqualError(t, err, "bad syntax: Value call:")
+
+	err = Check(struct {
+		Value int `check:"call:method"`
+	}{})
+	assert.EqualError(t, err, "method not found: method")
+
+	err = Check(testMethodWrong{})
+	assert.EqualError(t, err, "wrong signature method: Value call:CheckValue")
+
+	err = Check(testMethodWrongRet{})
+	assert.EqualError(t, err, "wrong signature method: Value call:CheckValue")
+
+	v := TestMethod{}
+	err = Check(v)
+	assert.EqualError(t, err, "error from method")
+
+	v.Value = "valid"
+	err = Check(v)
+	assert.EqualError(t, err, "required value")
+
+	i := 100
+	v.Value = "valid"
+	v.IntPtr = &i
+	err = Check(v)
+	assert.NoError(t, err)
+
+	//nested
+	type TestMethodWrap struct {
+		Nested TestMethod
+	}
+	vw := TestMethodWrap{
+		Nested: TestMethod{},
+	}
+	err = Check(vw)
+	assert.EqualError(t, err, "error from method")
 }

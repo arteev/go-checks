@@ -15,7 +15,7 @@ type (
 	Value interface {
 		Name() string
 		Tag() reflect.StructTag
-		Value() *reflect.Value
+		Value() reflect.Value
 		Parent() Value
 		Struct() *reflect.StructField
 	}
@@ -28,7 +28,7 @@ type (
 	node struct {
 		ptr      bool
 		parent   *node
-		value    *reflect.Value
+		value    reflect.Value
 		strField *reflect.StructField
 	}
 )
@@ -48,9 +48,9 @@ func canIterate(v reflect.Value) bool {
 
 func (n node) Name() string {
 	if n.strField == nil {
-		name := reflect.Indirect(*n.value).Type().Name()
+		name := reflect.Indirect(n.value).Type().Name()
 		if name == "" {
-			name = reflect.Indirect(*n.value).Type().Kind().String()
+			name = reflect.Indirect(n.value).Type().Kind().String()
 		}
 		return name
 	}
@@ -62,7 +62,7 @@ func (n node) Tag() reflect.StructTag {
 	}
 	return n.strField.Tag
 }
-func (n node) Value() *reflect.Value { return n.value }
+func (n node) Value() reflect.Value { return n.value }
 
 func (n node) Struct() *reflect.StructField { return n.strField }
 
@@ -92,7 +92,7 @@ func (i *iterator) initValue(v reflect.Value, sf *reflect.StructField, parent *n
 	}
 	item := &node{
 		ptr:      ptr,
-		value:    &v,
+		value:    v,
 		strField: sf,
 		parent:   parent,
 	}

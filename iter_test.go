@@ -32,11 +32,10 @@ func TestNode(t *testing.T) {
 	value := reflect.ValueOf("str")
 	parent := node{
 		strField: nil,
-		value:    nil,
 	}
 	n := node{
 		parent: &parent,
-		value:  &value,
+		value:  value,
 	}
 	assert.Equal(t, "string", n.Name())
 	assert.Empty(t, n.Tag())
@@ -52,7 +51,7 @@ func TestNode(t *testing.T) {
 	field := value.Type().Field(0)
 	n = node{
 		parent:   &parent,
-		value:    &sValue,
+		value:    sValue,
 		strField: &field,
 	}
 	assert.Equal(t, "ValueStr", n.Name())
