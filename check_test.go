@@ -486,3 +486,30 @@ func TestOverMethod(t *testing.T) {
 	err = Check(vw)
 	assert.EqualError(t, err, "error from method")
 }
+
+func TestRegexp(t *testing.T) {
+	type testRegexp struct {
+		Value string `check:"re:[a-z]+"`
+	}
+
+	v := testRegexp{Value: "123"}
+	err := Check(v)
+	assert.EqualError(t, err, "no matches: Value re:[a-z]+")
+
+	v = testRegexp{}
+	err = Check(v)
+	assert.EqualError(t, err, "no matches: Value re:[a-z]+")
+
+	v = testRegexp{Value: "ab"}
+	err = Check(v)
+	assert.NoError(t, err)
+}
+
+func TestCheckInvalid(t *testing.T) {
+	type testInvalid struct {
+		Value string `check:"custom"`
+	}
+	v := testInvalid{}
+	err := Check(v)
+	assert.EqualError(t, err, "unknown check: custom")
+}

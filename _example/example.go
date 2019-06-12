@@ -13,6 +13,7 @@ type Config struct {
 	Timeout  int    `check:"deprecated"`
 
 	ValueForFunc string `check:"call:ValueCheck"`
+	ValueRegexp  string `check:"re:[a-z]+"`
 }
 
 func (c Config) Check() error {
@@ -34,9 +35,10 @@ func (c Config) ValueCheck(name string, s string) error {
 func main() {
 	//all errors
 	v := &Config{
-		Enabled:  true,
-		LogLevel: "warn",
-		Timeout:  10,
+		Enabled:     true,
+		LogLevel:    "warn",
+		Timeout:     10,
+		ValueRegexp: "123",
 	}
 	errs := checks.CheckAll(v)
 	if len(errs) != 0 {
@@ -72,6 +74,7 @@ func main() {
 		Listen:       ":8080",
 		LogLevel:     "debug",
 		ValueForFunc: "valid",
+		ValueRegexp:  "correct",
 	}
 	errs = checks.CheckAll(v)
 	if len(errs) == 0 {
