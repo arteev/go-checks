@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 )
 
@@ -13,6 +14,7 @@ var (
 	ErrValueUnexpected      = errors.New("unexpected value")
 	ErrDeprecated           = errors.New("deprecated parameter")
 	ErrWrongSignatureMethod = errors.New("wrong signature method")
+	ErrNoMatch              = errors.New("no matches")
 	ErrBadSyntax            = errors.New("bad syntax")
 	ErrSkip                 = errors.New("skip")
 )
@@ -127,6 +129,29 @@ func withMethod(root reflect.Value, value reflect.Value, strField *reflect.Struc
 	return err
 }
 
+func withRegexp(root reflect.Value, value reflect.Value, strField *reflect.StructField) error {
+	sTag := strField.Tag.Get("check")
+	sTagValues := strings.SplitN(sTag, ":", 2)
+	if len(sTagValues) != 2 || sTagValues[1] == "" {
+		return newError(ErrBadSyntax, strField.Name, sTag, ErrorType)
+	}
+	reString := sTagValues[1]
+
+	if isNil(value) || !value.IsValid() {
+		return newError(ErrValueUnexpected, strField.Name, "<nil>", ErrorType)
+	}
+
+	sValue := fmt.Sprintf("%v", value.Interface())
+	matched, err := regexp.MatchString(reString, sValue)
+	if err != nil {
+		return newError(err, strField.Name, sTag, ErrorType)
+	}
+	if !matched {
+		return newError(ErrNoMatch, strField.Name, sTag, ErrorType)
+	}
+	return nil
+}
+
 func interfaceChecker(value reflect.Value) error {
 	if !isInterface(value) {
 		return nil
@@ -154,7 +179,7 @@ func checkValue(v Value, parent Value) []error {
 	}
 
 	tagsChecks := strings.Split(sTag, ",")
-	result := []error{}
+	var result []error
 	for _, tagCheck := range tagsChecks {
 		var errCheck error
 		switch tagCheck {
@@ -167,6 +192,10 @@ func checkValue(v Value, parent Value) []error {
 				errCheck = expect(value, v.Struct())
 			} else if strings.HasPrefix(tagCheck, "call:") {
 				errCheck = withMethod(parent.Value(), value, v.Struct())
+			} else if strings.HasPrefix(tagCheck, "re:") {
+				errCheck = withRegexp(parent.Value(), value, v.Struct())
+			} else {
+				errCheck = fmt.Errorf("unknown check: %s", tagCheck)
 			}
 		}
 		if errCheck != nil {
